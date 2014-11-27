@@ -34,24 +34,24 @@ private:
 template<typename T_service, typename... T_delegateMessage>
 struct Service : Delegate<T_delegateMessage>...
 {
-    template<typename T_service, typename T_msg>
+    template<typename T_dstService, typename T_msg>
     void trigger(int dstNode, const T_msg& msg)
     {
-        emulator->trigger<T_service>(dstNode, msg);
+        emulator->trigger<T_dstService>(dstNode, msg);
     }
     
-    template<typename T_service, typename T_msg>
+    template<typename T_dstService, typename T_msg>
     void trigger(const T_msg& msg)
     {
-        emulator->trigger<T_service>(context().currentNode, msg);
+        emulator->trigger<T_dstService>(context().currentNode, msg);
     }
     
-    template<typename T_service, typename T_msg>
+    template<typename T_dstService, typename T_msg>
     void triggerAll(const T_msg& msg)
     {
         for (size_t i = 0; i < nodes->size(); ++ i)
-            if (nodes->node(i).hasProcess<T_service>())
-                emulator->trigger<T_service>(i, msg);
+            if (nodes->node(i).hasProcess<T_dstService>())
+                emulator->trigger<T_dstService>(i, msg);
     }
     
     template<typename... T>
@@ -60,22 +60,22 @@ struct Service : Delegate<T_delegateMessage>...
         trigger<T_service>(std::forward<T>(t)...);
     }
     
-    template<typename T_service>
+    template<typename T_localService>
     void attachTo()
     {
-        this->attach(localService<T_service>());
+        this->attach(localService<T_localService>());
     }
     
-    template<typename T_msg, typename T_service>
+    template<typename T_msg, typename T_localService>
     void attachToMessage()
     {
-        static_cast<Delegate<T_msg>&>(*this).attach(localService<T_service>());
+        static_cast<Delegate<T_msg>&>(*this).attach(localService<T_localService>());
     }
     
     template<typename T_serviceDelegate>
     void bindTo()
     {
-        localService<T_serviceDelegate>().attach(static_cast<T_service&>(*this));
+        this->localService<T_serviceDelegate>().attach(static_cast<T_service&>(*this));
     }
     
     void on(const Init&)
@@ -93,16 +93,16 @@ struct Service : Delegate<T_delegateMessage>...
     }
     
 private:
-    template<typename T_service>
-    T_service& examineService(int node)
+    template<typename T_dstService>
+    T_dstService& examineService(int node)
     {
-        return nodes->node(node).getProcess<T_service>().getService();
+        return nodes->node(node).getProcess<T_dstService>().getService();
     }
     
-    template<typename T_service>
-    T_service& localService()
+    template<typename T_localService>
+    T_localService& localService()
     {
-        return examineService<T_service>(context().currentNode);
+        return this->examineService<T_localService>(context().currentNode);
     }
     
     An<Emulator> emulator;
@@ -156,7 +156,7 @@ struct BestEffortBroadcast : Service<BestEffortBroadcast<T_msg>, MsgSrc<T_msg>>
     
     void on(const T_msg& m)
     {
-        this->triggerAll<BestEffortBroadcast>(Deliver{m, context().sourceNode});
+        this->template triggerAll<BestEffortBroadcast>(Deliver{m, context().sourceNode});
     }
 };
 
@@ -165,7 +165,7 @@ struct RegularRegister1N : Service<RegularRegister1N<T_val>, WriteReturn>
 {
     using BroadcastSrv = BestEffortBroadcast<T_val>;
     
-    using Write = Write<T_val>;
+    using WriteVal = Write<T_val>;
     using Deliver = MsgSrc<T_val>;
     using Service<RegularRegister1N, WriteReturn>::on;
 
@@ -174,18 +174,18 @@ struct RegularRegister1N : Service<RegularRegister1N<T_val>, WriteReturn>
     
     void on(const Init&)
     {
-        bindTo<BroadcastSrv>();
+        this->template bindTo<BroadcastSrv>();
     }
     
-    void on(const Write& w)
+    void on(const WriteVal& w)
     {
-        trigger<BroadcastSrv>(w.val);
+        this->template trigger<BroadcastSrv>(w.val);
     }
     
     void on(const Deliver& v)
     {
         val = v.msg;
-        triggerSelf(v.srcNode, Ack{});
+        this->triggerSelf(v.srcNode, Ack{});
     }
     
     void on(const Ack&)
@@ -203,7 +203,7 @@ struct RegularRegister1N : Service<RegularRegister1N<T_val>, WriteReturn>
         if (++ num == servers)
         {
             num = 0;
-            triggerSelf(WriteReturn());
+            this->triggerSelf(WriteReturn());
         }
     }
 };
@@ -211,6 +211,8 @@ struct RegularRegister1N : Service<RegularRegister1N<T_val>, WriteReturn>
 struct Client : Service<Client>
 {
     using Service<Client>::on;
+    using Register = RegularRegister1N<int>;
+
     struct Written {};
     
     void on(const Init&)
@@ -218,17 +220,17 @@ struct Client : Service<Client>
         if (context().currentNode == 0)
         {
             Write<int> w{1};
-            trigger<RegularRegister1N<int>>(1, w);
+            this->trigger<Register>(1, w);
         }
         else
         {
-            bindTo<RegularRegister1N<int>>();
+            this->bindTo<Register>();
         }
     }
 
     void on(const WriteReturn&)
     {
-        triggerSelf(0, Written{});
+        this->triggerSelf(0, Written{});
     }
     
     void on(const Written&)
