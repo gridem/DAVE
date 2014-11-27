@@ -1,23 +1,15 @@
 #include "verifier.h"
 
-struct Broadcast {};
-struct BroadcastAck {};
-
 struct IConnection : HandlerQueue
 {
 };
-
-template<typename T_service>
-void createService(int node)
-{
-    An<Nodes>()->sizedNode(node).addProcess<T_service>();
-}
 
 template<typename T_msg>
 struct Delegate
 {
     void on(const T_msg& msg)
     {
+        VERIFY(delegate != nullptr, "Delegate " + getTypeName<T_msg>() + " must be init");
         delegate(msg);
     }
     
@@ -35,25 +27,34 @@ template<typename T_service, typename... T_delegateMessage>
 struct Service : Delegate<T_delegateMessage>...
 {
     template<typename T_dstService, typename T_msg>
-    void trigger(int dstNode, const T_msg& msg)
+    bool trigger(int dstNode, const T_msg& msg)
     {
-        emulator->trigger<T_dstService>(dstNode, msg);
+        return emulator->trigger<T_dstService>(dstNode, msg);
     }
     
     template<typename T_dstService, typename T_msg>
-    void trigger(const T_msg& msg)
+    bool trigger(const T_msg& msg)
     {
-        emulator->trigger<T_dstService>(context().currentNode, msg);
+        return emulator->trigger<T_dstService>(context().currentNode, msg);
     }
     
     template<typename T_dstService, typename T_msg>
-    void triggerAll(const T_msg& msg)
+    int triggerAny(const T_msg& msg, int count = 1)
     {
+        int triggerCount = 0;
         for (size_t i = 0; i < nodes->size(); ++ i)
-            if (nodes->node(i).hasProcess<T_dstService>())
-                emulator->trigger<T_dstService>(i, msg);
+            if (this->trigger<T_dstService>(i, msg))
+                if (++ triggerCount == count)
+                    break;
+        return triggerCount;
     }
-    
+
+    template<typename T_dstService, typename T_msg>
+    int triggerAll(const T_msg& msg)
+    {
+        return this->triggerAny<T_dstService>(msg, -1);
+    }
+
     template<typename... T>
     void triggerSelf(T&&... t)
     {
@@ -210,6 +211,7 @@ struct RegularRegister1N : Service<RegularRegister1N<T_val>, WriteReturn>
 
 struct Client : Service<Client>
 {
+    using WriteVal = Write<int>;
     using Service<Client>::on;
     using Register = RegularRegister1N<int>;
 
@@ -219,8 +221,8 @@ struct Client : Service<Client>
     {
         if (context().currentNode == 0)
         {
-            Write<int> w{1};
-            this->trigger<Register>(1, w);
+            WriteVal w{1};
+            this->triggerAny<Register>(w);
         }
         else
         {
@@ -240,11 +242,17 @@ struct Client : Service<Client>
     
     void on(const Disconnect&)
     {
-        lastDisconnected = context().sourceNode;
+        if (context().currentNode != 0)
+            return;
+        if (written)
+            return;
+        if (context().sourceNode != 1)
+            return;
+        WriteVal w{1};
+        CHECK2(this->triggerAny<Register>(w) == 1, "trigger ok");
     }
     
     bool written = false;
-    int lastDisconnected = -1;
 };
 
 struct ServiceCreator
@@ -280,7 +288,7 @@ void test2()
 {
     TLOG("Testing RegularRegister1N: sender may fail");
     ServiceCreator c;
-    c.create<Client>(0, 2);
+    c.create<Client>(0, servers + 1);
     c.create<RegularRegister1N<int>>(1, servers);
     c.create<BestEffortBroadcast<int>>(1, servers);
     
@@ -288,7 +296,7 @@ void test2()
     TrueScheduler s {[&a] {
         TLOG("on end");
         Client& client = a.service<Client>(0);
-        CHECK2(client.written || client.lastDisconnected == 1, "not written");
+        CHECK2(client.written, "not written");
     }};
     s.run();
 }

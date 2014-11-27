@@ -76,7 +76,7 @@ private:
     An<Nodes> nodes;
 };
 
-struct Scheduler
+struct Scheduler : IObject
 {
     Scheduler(Handler end) : onEnd(std::move(end))
     {
@@ -147,6 +147,7 @@ struct TrueScheduler : Scheduler
                 RLOG("Iteration exceeds the amount of steps: " << v);
                 break;
             }
+            //emulator->printAvailable();
             auto available = emulator->available();
             if (available.empty())
                 break;

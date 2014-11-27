@@ -62,7 +62,7 @@ struct Node
     template<typename T_service>
     bool hasProcess() const
     {
-        return processes.has<Process<T_service>>();
+        return on && processes.has<Process<T_service>>();
     }
     
     void createProcesses()

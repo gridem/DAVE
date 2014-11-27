@@ -52,18 +52,12 @@ struct Nodes
         VERIFY(nd != 0, "Zero node is protected against disconnects");
         ++ stats->disconnects;
         ++ globalStats->disconnects;
+        nodes[nd].shutdownProcesses();
         int i = 0;
         for (Node& n: nodes)
         {
-            if (i != nd)
-            {
-                ContextGuard guard({int(nd), i});
-                n.disconnectProcesses();
-            }
-            else
-            {
-                n.shutdownProcesses();
-            }
+            ContextGuard guard({int(nd), i});
+            n.disconnectProcesses();
             ++ i;
         }
     }
@@ -95,8 +89,10 @@ inline std::string disconnectionName(int dstNode)
 struct Emulator
 {
     template<typename T_service, typename T_msg>
-    void trigger(int dstNode, const T_msg& msg)
+    bool trigger(int dstNode, const T_msg& msg)
     {
+        if (!nodes->node(dstNode).hasProcess<T_service>())
+            return false;
         Context ctx = destinationContext(dstNode);
         auto& handler = NodeHandler::create(
             [this, ctx, dstNode, msg] {
@@ -107,6 +103,7 @@ struct Emulator
             EventType::Trigger
         );
         nodes->node(dstNode).getProcess<T_service>().push(handler);
+        return true;
     }
     
     std::vector<NodeHandler*> available()
