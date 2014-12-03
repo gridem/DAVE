@@ -11,20 +11,11 @@ struct IHandlerQueue : IObject
 
 using Queues = List<IHandlerQueue, &IHandlerQueue::queues>;
 
-template<typename T_queue>
-auto queuePop(T_queue& q) -> decltype(q.front())
-{
-    auto& v = q.front();
-    q.pop_front();
-    return v;
-}
-
 struct HandlerQueue : IHandlerQueue
 {
     void clear() override
     {
-        while (!empty())
-            delete &pop();
+        queue.clearDispose();
     }
     
     bool empty() const override
@@ -39,7 +30,7 @@ struct HandlerQueue : IHandlerQueue
     
     NodeHandler& pop() override
     {
-        return queuePop(queue);
+        return queue.popFront();
     }
     
     void push(NodeHandler& h) override

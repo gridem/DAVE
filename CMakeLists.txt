@@ -37,7 +37,7 @@ if(MSVC)
 endif()
 
 if(GCC_LIKE_COMPILER)
-    add_definitions(-std=c++11)
+    add_definitions(-std=c++14)
     if("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
         add_definitions(-stdlib=libc++)
     endif()

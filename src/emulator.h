@@ -141,8 +141,7 @@ struct Emulator
 private:
     void initDisconnections()
     {
-        while (!nodeDisconnects.empty())
-            delete &nodeDisconnects.back();
+        nodeDisconnects.clearDispose();
         VERIFY(nodeDisconnects.empty(), "handler disconnects clear failed");
         for (size_t dstNode = 1; dstNode < nodes->size(); ++ dstNode)
         {

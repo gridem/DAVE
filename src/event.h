@@ -31,6 +31,9 @@ struct NodeHandler : Handler
 {
     using Handler::Handler;
     
+    // FIX: workaround GCC 4.9
+    NodeHandler(Handler&& h) : Handler(std::move(h)) {}
+
     std::string name;
     EventType type;
     

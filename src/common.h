@@ -13,12 +13,40 @@ using Handler = std::function<void()>;
 
 using ListHook = bi::list_member_hook<bi::link_mode<bi::auto_unlink>>;
 
+inline auto disposer()
+{
+	return [](auto* obj) { delete obj; };
+}
+
 template<typename T_type, ListHook T_type::* T_member>
-using List = bi::list<
-    T_type,
-    bi::constant_time_size<false>,
-    bi::member_hook<T_type, ListHook, T_member>
->;
+struct List : bi::list
+    <
+        T_type,
+        bi::constant_time_size<false>,
+        bi::member_hook<T_type, ListHook, T_member>
+    >
+{
+    using BaseList = bi::list
+        <
+            T_type,
+            bi::constant_time_size<false>,
+            bi::member_hook<T_type, ListHook, T_member>
+        >;
+
+    using BaseList::BaseList;
+
+    void clearDispose()
+    {
+        this->clear_and_dispose(disposer());
+    }
+
+    T_type& popFront()
+    {
+        auto& v = this->front();
+        this->pop_front();
+        return v;
+    }
+};
 
 struct IObject
 {
