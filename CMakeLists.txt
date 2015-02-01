@@ -31,6 +31,7 @@ else()
 endif()
 
 if(MSVC)
+    include_directories($ENV{INCLUDE})
     add_definitions(-DflagMSC)
     include(MSVCRuntime.cmake)
     configure_msvc_runtime()
