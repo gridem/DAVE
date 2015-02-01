@@ -27,6 +27,10 @@ inline std::ostream& operator<<(std::ostream& o, EventType type)
     return o << toString(type);
 }
 
+struct NodeHandler;
+
+inline void attach(NodeHandler& h);
+
 struct NodeHandler : Handler
 {
     using Handler::Handler;
@@ -39,7 +43,7 @@ struct NodeHandler : Handler
     
     // container section
     ListHook queue; // list of scheduled handlers
-    //ListHook front; // list of available handlers
+    ListHook all;   // list of all handlers
     
     void invoke()
     {
@@ -52,9 +56,16 @@ struct NodeHandler : Handler
     {
         HLOG("creating: " << name);
         auto* h = new NodeHandler(std::move(handler));
+        attach(*h);
         h->name = std::move(name);
         h->type = type;
         return *h;
     }
 };
 
+using Handlers = List<NodeHandler, &NodeHandler::all>;
+
+inline void attach(NodeHandler& h)
+{
+    An<Handlers>()->push_back(h);
+}
