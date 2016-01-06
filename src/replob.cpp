@@ -212,7 +212,6 @@ void replob()
     
     ServiceAccessor a;
     TrueScheduler s {[&a] {
-        //CHECK3(!a.service<Replob>(0).commited.empty(), "must be commited");
         a.service<Client>(0).test();
     }};
     s.run();
