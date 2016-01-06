@@ -45,9 +45,19 @@ struct NodeHandler : Handler
     ListHook queue; // list of scheduled handlers
     ListHook all;   // list of all handlers
     
-    void invoke()
+    void dump()
     {
         HLOG("invoking: " << name << " [" << type << "]");
+    }
+
+    void rdump()
+    {
+        RLOG("invoking: " << name << " [" << type << "]");
+    }
+
+    void invoke()
+    {
+        dump();
         (*this)();
         delete this;
     }

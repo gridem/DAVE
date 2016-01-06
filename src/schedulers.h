@@ -1,5 +1,10 @@
 #define CLOG(D_msg)     JLOG("SCH: " << D_msg)
 
+struct VerificationFail : std::runtime_error
+{
+    VerificationFail() : std::runtime_error{"Verification failed"} {}
+};
+
 using Variant = std::vector<int>;
 
 inline std::ostream& operator<<(std::ostream& o, const Variant& v)
@@ -82,7 +87,7 @@ struct Scheduler : IObject
     {
     }
     
-    virtual void runIteration(Variant v) = 0;
+    virtual Variant runIteration(Variant v) = 0;
     
     void init()
     {
@@ -92,6 +97,7 @@ struct Scheduler : IObject
     
     void run()
     {
+        int fails = 0;
         variants->add({});
         for (int i = 0; i < config->maxIterations; ++ i)
         {
@@ -103,20 +109,38 @@ struct Scheduler : IObject
             }
             ++ globalStats->iterations;
             execVariant(v);
-            runIteration(std::move(v));
-            onEnd();
+            auto vend = runIteration(std::move(v));
+            CLOG("on end");
+            try
+            {
+                onEnd();
+            }
+            catch (VerificationFail&)
+            {
+                RLOG("Sequence: " << vend);
+                execVariant(vend, true);
+                if (++ fails == config->maxFails)
+                {
+                    RLOG("Max fails reached");
+                    break;
+                }
+            }
             CLOG("on end done");
         }
         RLOG("global stats: " << *globalStats);
     }
     
-    void execVariant(const Variant& v)
+    void execVariant(const Variant& v, bool show = false)
     {
         CLOG("init");
         init();
         CLOG("executing variant from scratch: " << v);
         for (int i: v)
+        {
+            if (show)
+                emulator->available().at(i)->rdump();
             emulator->available().at(i)->invoke();
+        }
         CLOG("done exec");
     }
     
@@ -138,7 +162,7 @@ struct TrueScheduler : Scheduler
 {
     using Scheduler::Scheduler;
     
-    void runIteration(Variant v)
+    Variant runIteration(Variant v)
     {
         while (true)
         {
@@ -180,6 +204,7 @@ struct TrueScheduler : Scheduler
             available[ni]->invoke();
         }
         CLOG("runIteration done");
+        return v;
     }
 };
 

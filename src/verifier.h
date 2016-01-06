@@ -15,3 +15,4 @@
 #include "stats.h"
 #include "emulator.h"
 #include "schedulers.h"
+#include "service.h"

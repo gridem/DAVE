@@ -15,7 +15,7 @@ using ListHook = bi::list_member_hook<bi::link_mode<bi::auto_unlink>>;
 
 inline auto disposer()
 {
-	return [](auto* obj) { delete obj; };
+    return [](auto* obj) { delete obj; };
 }
 
 template<typename T_type, ListHook T_type::* T_member>

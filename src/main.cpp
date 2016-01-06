@@ -4,12 +4,14 @@
 
 void test();
 void test2();
+void replob();
 
 int main(int argc, char* argv[])
 {
     try
     {
-        test2();
+        //test2();
+        replob();
     }
     catch (std::exception& e)
     {

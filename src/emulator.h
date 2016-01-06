@@ -2,9 +2,12 @@
 
 struct Config
 {
+    int nodes = 3;
     int maxFailedNodes = 1;
+    int maxFails = 1;
     int maxIterations = 100000;
     int maxSteps = 50;
+    int minUnreliableNode = 1;
 };
 
 struct Nodes
@@ -49,7 +52,7 @@ struct Nodes
     void disconnect(size_t nd)
     {
         VERIFY(nd < nodes.size(), "Invalid node index");
-        VERIFY(nd != 0, "Zero node is protected against disconnects");
+        VERIFY(int(nd) >= config->minUnreliableNode, "Reliable node(s) is protected against disconnects");
         ++ stats->disconnects;
         ++ globalStats->disconnects;
         nodes[nd].shutdownProcesses();
@@ -72,6 +75,7 @@ private:
     std::vector<Node> nodes;
     An<Stats> stats;
     An<GlobalStats> globalStats;
+    An<Config> config;
 };
 
 template<typename T_service, typename T_msg>
@@ -143,7 +147,7 @@ private:
     {
         nodeDisconnects.clearDispose();
         VERIFY(nodeDisconnects.empty(), "handler disconnects clear failed");
-        for (size_t dstNode = 1; dstNode < nodes->size(); ++ dstNode)
+        for (size_t dstNode = config->minUnreliableNode; dstNode < nodes->size(); ++ dstNode)
         {
             auto& handler = NodeHandler::create(
                 [this, dstNode] {
@@ -158,6 +162,7 @@ private:
 
     An<Nodes> nodes;
     An<Queues> queues;
+    An<Config> config;
     
     List<NodeHandler, &NodeHandler::queue> nodeDisconnects;
 };
