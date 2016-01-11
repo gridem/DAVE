@@ -156,7 +156,7 @@ private:
     An<Config> conf;
 };
 
-#define SLOG(D_msg)         JLOG("SRV: " << D_msg)
+#define SLOG(D_msg)         JLOG("SRV: " << D_msg << ", on " << context().sourceNode << "=>" << context().currentNode)
 
 #define TLOG(D_msg)         JLOG("--- TEST: " << D_msg)
 

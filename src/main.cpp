@@ -19,13 +19,14 @@
 void test();
 void test2();
 void replob();
+void replob2(int clientCommits);
 
-int main(int argc, char* argv[])
+int main(/*int argc, char* argv[]*/)
 {
     try
     {
         //test2();
-        replob();
+        replob2(2);
     }
     catch (std::exception& e)
     {

@@ -20,6 +20,8 @@
 #include <typeindex>
 #include <unordered_map>
 #include <memory>
+#include <vector>
+#include <string>
 
 #include "helpers.h"
 #include "common.h"

@@ -25,9 +25,17 @@ using Variant = std::vector<int>;
 
 inline std::ostream& operator<<(std::ostream& o, const Variant& v)
 {
+    o << '{';
+    bool first = true;
     for (int i: v)
-        o << i << " ";
-    return o;
+    {
+        if (first)
+            first = false;
+        else
+            o << ", ";
+        o << i;
+    }
+    return o << '}';
 }
 
 struct FrontScheduler
@@ -113,9 +121,8 @@ struct Scheduler : IObject
     
     void run()
     {
-        int fails = 0;
         variants->add({});
-        for (int i = 0; i < config->maxIterations; ++ i)
+        for (int i = 0; i < config->maxIterations || config->maxIterations == 0; ++ i)
         {
             Variant v;
             if (!variants->get(v))
@@ -126,24 +133,36 @@ struct Scheduler : IObject
             ++ globalStats->iterations;
             execVariant(v);
             auto vend = runIteration(std::move(v));
-            CLOG("on end");
-            try
+            if (finalize(vend))
+                break;
+            if ((i+1) % config->progressIterations == 0)
             {
-                onEnd();
+                RLOG("global stats: " << *globalStats);
+                RLOG("Variant: " << vend);
             }
-            catch (VerificationFail&)
-            {
-                RLOG("Sequence: " << vend);
-                execVariant(vend, true);
-                if (++ fails == config->maxFails)
-                {
-                    RLOG("Max fails reached");
-                    break;
-                }
-            }
-            CLOG("on end done");
         }
         RLOG("global stats: " << *globalStats);
+    }
+
+    bool finalize(const Variant& v)
+    {
+        CLOG("on end");
+        try
+        {
+            onEnd();
+        }
+        catch (VerificationFail&)
+        {
+            RLOG("Failed sequence: " << v);
+            execVariant(v, true);
+            if (++ fails == config->maxFails)
+            {
+                RLOG("Max fails reached");
+                return true;
+            }
+        }
+        CLOG("on end done");
+        return false;
     }
     
     void execVariant(const Variant& v, bool show = false)
@@ -159,6 +178,12 @@ struct Scheduler : IObject
         }
         CLOG("done exec");
     }
+
+    void checkVariant(const Variant& v)
+    {
+        execVariant(v);
+        onEnd();
+    }
     
 protected:
     bool allowedDisconnection()
@@ -166,6 +191,7 @@ protected:
         return stats->disconnects < config->maxFailedNodes;
     }
 
+    int fails = 0;
     Handler onEnd;
     An<Emulator> emulator;
     An<Stats> stats;
@@ -223,4 +249,3 @@ struct TrueScheduler : Scheduler
         return v;
     }
 };
-

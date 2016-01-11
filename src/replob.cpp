@@ -72,6 +72,11 @@ struct MsgId
     {
         return id < m.id;
     }
+
+    bool operator==(const MsgId& m) const
+    {
+        return id == m.id;
+    }
 };
 
 using NodeId = int;
@@ -107,27 +112,26 @@ struct Replob : Service<Replob>
         Completed,
     };
 
+    void on(const Init&)
+    {
+        for (NodeId nId = 0; nId < config->nodes; ++ nId)
+            nodes_ |= nId;
+    }
+
     void on(const Apply& apply)
     {
         SLOG("Apply");
-        NodesSet nodesSet;
-        for (NodeId nId = 0; nId < config->nodes; ++ nId)
-            nodesSet |= nId;
-        on(Vote{CarrySet{apply.id}, context().currentNode, nodesSet});
+        on(Vote{CarrySet{apply.id}, context().currentNode, nodes_});
     }
 
     void on(const Vote& vote)
     {
         if (state_ == State::Completed)
             return;
-        if (!nodes_.empty() && nodes_.count(context().sourceNode) == 0)
+        if (nodes_.count(context().sourceNode) == 0)
             return;
         carries_ |= vote.carrySet;
-        if (nodes_.empty())
-        {
-            nodes_ = vote.nodesSet;
-        }
-        else if (nodes_ != vote.nodesSet)
+        if (nodes_ != vote.nodesSet)
         {
             state_ = State::Initial;
             nodes_ &= vote.nodesSet;
@@ -145,7 +149,6 @@ struct Replob : Service<Replob>
             // TODO: use broadcastSet().<method>(nodes_set, ...)
             this->triggerAllExceptSelf<Replob>(Vote{carries_, context().currentNode, nodes_});
         }
-
     }
 
     void on(const Commit& commit)
@@ -160,11 +163,10 @@ struct Replob : Service<Replob>
 
     void on(const Disconnect&)
     {
-        NodesSet nodesSet;
-        for (NodeId nId = 0; nId < config->nodes; ++ nId)
-            if (nId != context().sourceNode)
-                nodesSet |= nId;
-        on(Vote{carries_, context().currentNode, nodesSet});
+        if (carries_.empty())
+            nodes_.erase(context().sourceNode);
+        else
+            on(Vote{carries_, context().currentNode, nodes_-NodesSet{context().sourceNode}});
     }
 
     void complete()
@@ -180,13 +182,141 @@ struct Replob : Service<Replob>
     An<Config> config;
 };
 
-struct Client : Service<Client>
+struct Vote2
+{
+    CarrySet carrySet;
+    NodesSet nodesSet;
+    //NodesSet votedSet;
+};
+
+struct Commit2
+{
+    CarrySet carrySet;
+};
+
+struct Replob2 : Service<Replob2>
+{
+    using Service<Replob2>::on;
+
+    enum struct State
+    {
+        ToVote, // can vote only in initial state
+        MayCommit,
+        CannotCommit,
+        Completed,
+    };
+
+    void on(const Init&)
+    {
+        for (NodeId nId = 0; nId < config->nodes; ++ nId)
+            nodes_ |= nId;
+    }
+
+    void on(const Apply& apply)
+    {
+        SLOG("Apply");
+        on(Vote2{CarrySet{apply.id}, nodes_});
+    }
+
+    void on(const Vote2& vote)
+    {
+        if (state_ == State::Completed)
+            return;
+        if (nodes_.count(context().sourceNode) == 0)
+            return;
+        if (state_ == State::MayCommit && carries_ != vote.carrySet)
+        {
+            state_ = State::CannotCommit;
+        }
+        carries_ |= vote.carrySet;
+        voted_ |= context().sourceNode;
+        voted_ |= context().currentNode;
+        if (nodes_ != vote.nodesSet)
+        {
+            if (state_ == State::MayCommit)
+                state_ = State::CannotCommit;
+            nodes_ &= vote.nodesSet;
+            voted_ &= vote.nodesSet;
+        }
+        if (voted_ == nodes_)
+        {
+            if (state_ == State::MayCommit)
+            {
+                on(Commit2{carries_});
+                return; // ?
+            }
+            else
+            {
+                state_ = State::ToVote;
+            }
+        }
+        if (state_ == State::ToVote)
+        {
+            state_ = State::MayCommit;
+            broadcast(Vote2{carries_, nodes_});
+        }
+    }
+
+    void on(const Commit2& commit)
+    {
+        if (state_ == State::Completed)
+            return;
+        state_ = State::Completed;
+        SLOG("Broadcasting commit");
+        if (carries_ != commit.carrySet)
+        {
+            SLOG("Invalid carry");
+            for (auto&& n: carries_)
+            {
+                RLOG("carries: " << n.id);
+            }
+            for (auto&& n: commit.carrySet)
+            {
+                RLOG("to commit: " << n.id);
+            }
+        }
+        VERIFY(carries_ == commit.carrySet, "Invalid carry set on commit");
+        carries_ = commit.carrySet;
+        complete();
+        broadcast(commit);
+    }
+
+    void on(const Disconnect&)
+    {
+        if (carries_.empty())
+            nodes_.erase(context().sourceNode);
+        else
+            on(Vote2{carries_, nodes_-NodesSet{context().sourceNode}});
+    }
+
+    void complete()
+    {
+        commited = carries_;
+    }
+
+    template<typename T>
+    void broadcast(const T& t)
+    {
+        this->triggerAllExceptSelf<Replob2>(t);
+    }
+
+    State state_ = State::ToVote;
+    bool needReinit_ = false;
+    NodesSet nodes_;
+    NodesSet voted_;
+    CarrySet carries_;
+    CarrySet commited;
+    An<Config> config;
+};
+
+template<typename T_replob>
+struct Client : Service<Client<T_replob>>
 {
     using Service<Client>::on;
 
     void on(const Init&)
     {
-        this->trigger<Replob>(Apply{});
+        this->template trigger<T_replob>(Apply{});
     }
 
     void on(const Disconnect&)
@@ -196,23 +326,77 @@ struct Client : Service<Client>
 
     void test()
     {
-        CHECK3(!accessor.service<Replob>(0).commited.empty(), "must be commited");
+        CarrySet commited;
+        for (int i = 0; i < config->nodes; ++ i)
+        {
+            bool isDisconnected = disconnected.count(i) != 0;
+            auto& nodeCommited = accessor.service<T_replob>(i).commited;
+            if (isDisconnected && nodeCommited.empty())
+                continue;
+            CHECK3(!nodeCommited.empty(), "must be commited for node: "
+                   << i << ", is disconnected: " << isDisconnected);
+            if (commited.empty())
+                commited = nodeCommited;
+            else
+            {
+                if (commited != nodeCommited)
+                {
+                    for (auto&& n: commited)
+                    {
+                        RLOG("commited: " << n.id);
+                    }
+                    for (auto&& n: nodeCommited)
+                    {
+                        RLOG("node commited: " << n.id);
+                    }
+                    RLOG("node: " << i);
+                }
+                CHECK3(commited == nodeCommited, "must be consensus for the same messages: " + std::to_string(i));
+            }
+        }
     }
 
     NodesSet disconnected;
     ServiceAccessor accessor;
+    An<Config> config;
 };
 
 void replob()
 {
+    using R = Replob;
+    using C = Client<R>;
+
     TLOG("Testing replob commit");
     ServiceCreator c;
-    c.create<Client>(0);
-    c.create<Replob>(0, c.config().nodes);
+    c.create<C>(0, 2);
+    c.create<R>(0, c.config().nodes);
     
     ServiceAccessor a;
     TrueScheduler s {[&a] {
-        a.service<Client>(0).test();
+        a.service<C>(0).test();
     }};
     s.run();
+    //s.checkVariant({0, 0, 2, 2, 2, 0, 0, 0, 0, 0});
+}
+
+void replob2(int clientCommits)
+{
+    using R = Replob2;
+    using C = Client<R>;
+
+    An<Config> config;
+    config->maxFails = 1;
+    config->maxIterations = 0;
+
+    TLOG("Testing replob2 commit");
+    ServiceCreator c;
+    c.create<C>(0, clientCommits);
+    c.create<R>(0, c.config().nodes);
+
+    ServiceAccessor a;
+    TrueScheduler s {[&a] {
+        a.service<C>(0).test();
+    }};
+    s.run();
+    //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0});
 }

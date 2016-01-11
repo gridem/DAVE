@@ -20,8 +20,9 @@ struct Config
 {
     int nodes = 3;
     int maxFailedNodes = 1;
-    int maxFails = 1;
-    int maxIterations = 100000;
+    int maxFails = 3;
+    int maxIterations = 10000000;
+    int progressIterations = 10000;
     int maxSteps = 50;
     int minUnreliableNode = 1;
 };
