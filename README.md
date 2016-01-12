@@ -6,10 +6,10 @@ Distributed Asynchronous Verification Emulator (DAVE) is a software to verify th
 
 ## Build Requirements
 
-* Supported compilers (must support c++11):
+* Supported compilers (must support C++11):
     * GCC
     * Clang
-    * MSVC (2015)
+    * MSVC
 * Libraries: BOOST, version >= 1.56
 
 ## Replicated Object Verification
@@ -17,7 +17,7 @@ Distributed Asynchronous Verification Emulator (DAVE) is a software to verify th
 DAVE allows to verify masterless consensus algorithm known as *replob*. For detailed information please read the following articles:
 
 1. [Replicated Object. Part 1: Introduction](http://gridem.blogspot.com/2015/09/replicated-object-part-1-introduction.html)
-1. [Replicated Object. Part 2: God Adapter](http://gridem.blogspot.com/2015/11/replicated-object-part-2-god-adapter.html) 
+1. [Replicated Object. Part 2: God Adapter](http://gridem.blogspot.com/2015/11/replicated-object-part-2-god-adapter.html)
 
 Configuration parameters:
 
@@ -39,13 +39,13 @@ Number of performed executions to check all variants:
 
 | Proposals | Proposal Nodes, id | Executions |
 |:-:|:-:|--:|
-| 1 | 0 | 59986 |
-| 2 | 0, 1 | 148995211 |
-| 3 | 0, 1, 2 | 734368600 |
+| 1 | 0 | 59 986 |
+| 2 | 0, 1 | 148 995 211 |
+| 3 | 0, 1, 2 | 734 368 600 |
 
 Clients propose the messages started from node `id == 0`.
 
-Checks:
+Verification checks:
 
 1. Nonfailed nodes must commit.
 2. Failed node may or may not commit.
