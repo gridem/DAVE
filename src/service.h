@@ -87,7 +87,13 @@ struct Service : Delegate<T_delegateMessage>...
     {
         trigger<T_service>(std::forward<T>(t)...);
     }
-    
+
+    template<typename T_msg>
+    void broadcast(const T_msg& msg)
+    {
+        triggerAllExceptSelf<T_service>(msg);
+    }
+
     template<typename T_localService>
     void attachTo()
     {

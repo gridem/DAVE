@@ -146,8 +146,7 @@ struct Replob : Service<Replob>
         else if (state_ == State::Initial)
         {
             state_ = State::Voted;
-            // TODO: use broadcastSet().<method>(nodes_set, ...)
-            this->triggerAllExceptSelf<Replob>(Vote{carries_, context().currentNode, nodes_});
+            broadcast(Vote{carries_, context().currentNode, nodes_});
         }
     }
 
@@ -157,7 +156,7 @@ struct Replob : Service<Replob>
             return;
         state_ = State::Completed;
         carries_ = commit.carrySet;
-        this->triggerAllExceptSelf<Replob>(Commit{carries_});
+        broadcast(Commit{carries_});
         complete();
     }
 
@@ -292,12 +291,6 @@ struct Replob2 : Service<Replob2>
     void complete()
     {
         commited = carries_;
-    }
-
-    template<typename T>
-    void broadcast(const T& t)
-    {
-        this->triggerAllExceptSelf<Replob2>(t);
     }
 
     State state_ = State::ToVote;
