@@ -17,6 +17,7 @@
 #include "verifier.h"
 
 #include <set>
+#include <unordered_map>
 
 template<typename T>
 std::set<T> operator-(const std::set<T>& s1, const std::set<T>& s2)
@@ -405,6 +406,129 @@ struct Replob4 : Service<Replob4>
     An<Config> config;
 };
 
+struct Replob5 : Service<Replob5>
+{
+    using Service<Replob5>::on;
+
+    struct Vote
+    {
+        CarrySet carries;
+        NodesSet nodes;
+        //NodesSet votes;
+    };
+
+    struct Commit {};
+
+    enum struct State
+    {
+        Voting,
+        Committed,
+    };
+
+    void on(const Init&)
+    {
+        for (NodeId nId = 0; nId < config->nodes; ++ nId)
+            aliveNodes_ |= nId;
+    }
+
+    void on(const Apply& apply)
+    {
+        SLOG("Apply");
+        on(Vote{CarrySet{apply.id}, aliveNodes_});
+    }
+
+    void on(const Vote& vote)
+    {
+        if (state_ == State::Committed)
+            return;
+        if (aliveNodes_.count(context().sourceNode) == 0)
+            return;
+        bool changedAliveNodes = aliveNodes_ != vote.nodes;
+        bool firstVote = votes_.empty();
+        aliveNodes_ &= vote.nodes;
+        carries_ |= vote.carries;
+        votes_ |= context().currentNode;
+        votes_ |= context().sourceNode;
+        votes_ &= aliveNodes_; // VERIFY???
+        for (auto&& carry: vote.carries)
+            carryVotes_[carry.id] |= context().sourceNode;
+
+        if (firstVote)
+        {
+            SLOG("Need broadcast due to first vote");
+            broadcast(Vote{carries_, aliveNodes_});
+            return;
+        }
+
+        if (changedAliveNodes)
+        {
+            SLOG("Clearing votes");
+            votes_.clear();
+            votes_ |= context().currentNode;
+            if (votes_ != aliveNodes_)
+            {
+                broadcast(Vote{carries_, aliveNodes_});
+                return;
+            }
+        }
+
+        if (votes_ != aliveNodes_)
+        {
+            SLOG("Need to wait more messages");
+            return;
+        }
+
+        if (mayCommit())
+        {
+            on(Commit{});
+        }
+        else
+        {
+            SLOG("Need broadcast");
+            broadcast(Vote{carries_, aliveNodes_});
+        }
+    }
+
+    void on(const Disconnect&)
+    {
+        SLOG("Disconnect");
+        if (carries_.empty())
+            aliveNodes_.erase(context().sourceNode);
+        else
+            on(Vote{carries_, aliveNodes_-NodesSet{context().sourceNode}});
+    }
+
+    void on(const Commit&)
+    {
+        if (state_ == State::Committed)
+            return;
+        SLOG("Commit");
+        state_ = State::Committed;
+        VERIFY(committed.empty(), "Already committed");
+        committed = carries_;
+        broadcast(Commit{});
+    }
+
+    bool mayCommit() const
+    {
+        for (auto&& kv: carryVotes_)
+            if (!(2 * kv.second.size() > aliveNodes_.size()))
+                return false;
+        return true;
+    }
+
+    State state_ = State::Voting;
+
+    NodesSet aliveNodes_;
+    // int = msg.id
+    NodesSet votes_;
+    std::unordered_map<int, NodesSet> carryVotes_;
+    CarrySet carries_;
+
+    CarrySet committed;
+    An<Config> config;
+};
+
 template<typename T_replob>
 struct Client : Service<Client<T_replob>>
 {
@@ -508,6 +632,28 @@ void replob4(int clientCommits)
     config->maxFailedNodes = 1;
 
     TLOG("Testing replob4 commit");
+    ServiceCreator c;
+    c.create<C>(0, clientCommits);
+    c.create<R>(0, c.config().nodes);
+
+    ServiceAccessor a;
+    TrueScheduler s {[&a] {
+        a.service<C>(0).test();
+    }};
+    s.run();
+}
+
+void replob5(int clientCommits)
+{
+    using R = Replob5;
+    using C = Client<R>;
+
+    An<Config> config;
+    config->maxFails = 1;
+    config->maxIterations = 0;
+    config->maxFailedNodes = 1;
+
+    TLOG("Testing replob5 commit");
     ServiceCreator c;
     c.create<C>(0, clientCommits);
     c.create<R>(0, c.config().nodes);
