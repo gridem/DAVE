@@ -41,6 +41,16 @@ void operator|=(std::set<T>& s, const std::set<T>& t)
 }
 
 template<typename T>
+std::set<T> operator&(const std::set<T>& s, const std::set<T>& t)
+{
+    std::set<T> newSet;
+    for (auto&& e: s)
+        if (t.count(e) == 1)
+            newSet |= e;
+    return newSet;
+}
+
+template<typename T>
 void operator&=(std::set<T>& s, const std::set<T>& t)
 {
     std::set<T> newSet;
@@ -170,14 +180,14 @@ struct Replob : Service<Replob>
 
     void complete()
     {
-        commited = carries_;
+        committed = carries_;
     }
 
     State state_ = State::Initial;
     NodesSet nodes_;
     NodesSet voted_;
     CarrySet carries_;
-    CarrySet commited;
+    CarrySet committed;
     An<Config> config;
 };
 
@@ -290,15 +300,208 @@ struct Replob2 : Service<Replob2>
 
     void complete()
     {
-        commited = carries_;
+        committed = carries_;
     }
 
     State state_ = State::ToVote;
-    bool needReinit_ = false;
     NodesSet nodes_;
     NodesSet voted_;
     CarrySet carries_;
-    CarrySet commited;
+
+    CarrySet committed;
+    An<Config> config;
+};
+
+struct Vote3
+{
+    CarrySet carries;
+    NodesSet nodes;
+    NodesSet votes;
+};
+
+struct Replob3 : Service<Replob3>
+{
+    using Service<Replob3>::on;
+
+    enum struct State
+    {
+        Voting,
+        Committed,
+    };
+
+    void on(const Init&)
+    {
+        for (NodeId nId = 0; nId < config->nodes; ++ nId)
+            nodes_ |= nId;
+    }
+
+    void on(const Apply& apply)
+    {
+        SLOG("Apply");
+        on(Vote3{CarrySet{apply.id}, nodes_, {}});
+    }
+
+    void on(const Vote3& vote)
+    {
+        // TODO:
+        // votes_ &= nodes
+        // think about vote reuse without resetting
+        if (state_ == State::Committed)
+            return;
+        if (nodes_.count(context().sourceNode) == 0)
+            return;
+        auto equality = [&] {
+            return carries_ == vote.carries;
+        };
+        nodes_ &= vote.nodes;
+        votes_ &= nodes_; // !! must be nodes_ instead of vote.nodes
+        bool needReset = !equality();
+        if (needReset)
+        {
+            SLOG("Need reset");
+            carries_ |= vote.carries;
+            votes_.clear();
+        }
+        NodesSet newVotes = votes_;
+        bool mayVoteUpdate = equality();
+        if (mayVoteUpdate)
+        {
+            SLOG("May vote update");
+            newVotes |= vote.votes;
+        }
+        newVotes |= context().currentNode;
+        bool needRemoteVoteUpdate = newVotes != votes_;
+        if (needRemoteVoteUpdate)
+        {
+            SLOG("Need remote vote update");
+            votes_ = newVotes;
+            broadcast(Vote3{carries_, nodes_, votes_});
+        }
+        bool needCommit = votes_ == nodes_;
+        if (needCommit)
+        {
+            SLOG("Need commit");
+            commit();
+        }
+    }
+
+    void on(const Disconnect&)
+    {
+        SLOG("Disconnect");
+        if (carries_.empty())
+            nodes_.erase(context().sourceNode);
+        else
+            on(Vote3{carries_, nodes_-NodesSet{context().sourceNode}, {}});
+    }
+
+    void commit()
+    {
+        SLOG("Commit");
+        state_ = State::Committed;
+        VERIFY(committed.empty(), "Already committed");
+        committed = carries_;
+    }
+
+    State state_ = State::Voting;
+    NodesSet nodes_;
+    NodesSet votes_;
+    CarrySet carries_;
+
+    CarrySet committed;
+    An<Config> config;
+};
+
+struct Vote4
+{
+    CarrySet carries;
+    NodesSet nodes;
+    NodesSet votes;
+};
+
+struct Commit4 {};
+
+struct Replob4 : Service<Replob4>
+{
+    using Service<Replob4>::on;
+
+    enum struct State
+    {
+        Voting,
+        Committed,
+    };
+
+    void on(const Init&)
+    {
+        for (NodeId nId = 0; nId < config->nodes; ++ nId)
+            nodes_ |= nId;
+    }
+
+    void on(const Apply& apply)
+    {
+        SLOG("Apply");
+        on(Vote4{CarrySet{apply.id}, nodes_, {}});
+    }
+
+    void on(const Vote4& vote)
+    {
+        if (state_ == State::Committed)
+            return;
+        if (nodes_.count(context().sourceNode) == 0)
+            return;
+        NodesSet nodes = vote.nodes & nodes_;
+        CarrySet carries = vote.carries | carries_;
+        NodesSet votes = {context().currentNode};
+        if (nodes == vote.nodes && carries == vote.carries)
+            votes |= vote.votes;
+        if (nodes == nodes_ && carries == carries_)
+            votes |= votes_;
+        votes &= nodes; // !!!! verify???
+        if (nodes != nodes_ || carries != carries_ || votes != votes_)
+        {
+            nodes_ = nodes;
+            votes_ = votes;
+            carries_ = carries;
+            if (nodes_ == votes_)
+            {
+                // commit
+                SLOG("Need commit");
+                on(Commit4{});
+            }
+            else
+            {
+                // broadcast
+                SLOG("Need broadcast");
+                broadcast(Vote4{carries_, nodes_, votes_});
+            }
+        }
+    }
+
+    void on(const Disconnect&)
+    {
+        SLOG("Disconnect");
+        if (carries_.empty())
+            nodes_.erase(context().sourceNode);
+        else
+            on(Vote4{carries_, nodes_-NodesSet{context().sourceNode}, {}});
+    }
+
+    void on(const Commit4&)
+    {
+        if (state_ == State::Committed)
+            return;
+        SLOG("Commit");
+        state_ = State::Committed;
+        VERIFY(committed.empty(), "Already committed");
+        committed = carries_;
+        broadcast(Commit4{});
+    }
+
+    State state_ = State::Voting;
+    NodesSet nodes_;
+    NodesSet votes_;
+    CarrySet carries_;
+
+    CarrySet committed;
     An<Config> config;
 };
 
@@ -323,7 +526,7 @@ struct Client : Service<Client<T_replob>>
         for (int i = 0; i < config->nodes; ++ i)
         {
             bool isDisconnected = disconnected.count(i) != 0;
-            auto& nodeCommited = accessor.service<T_replob>(i).commited;
+            auto& nodeCommited = accessor.service<T_replob>(i).committed;
             if (isDisconnected && nodeCommited.empty())
                 continue;
             CHECK3(!nodeCommited.empty(), "must be commited for node: "
@@ -392,4 +595,50 @@ void replob2(int clientCommits)
     }};
     s.run();
     //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0});
+}
+
+void replob3(int clientCommits)
+{
+    using R = Replob3;
+    using C = Client<R>;
+
+    An<Config> config;
+    config->maxFails = 1;
+    config->maxIterations = 0;
+    config->maxFailedNodes = 1;
+
+    TLOG("Testing replob3 commit");
+    ServiceCreator c;
+    c.create<C>(0, clientCommits);
+    c.create<R>(0, c.config().nodes);
+
+    ServiceAccessor a;
+    TrueScheduler s {[&a] {
+        a.service<C>(0).test();
+    }};
+    s.run();
+    //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0});
+}
+
+void replob4(int clientCommits)
+{
+    using R = Replob4;
+    using C = Client<R>;
+
+    An<Config> config;
+    config->maxFails = 1;
+    config->maxIterations = 0;
+    config->maxFailedNodes = 1;
+
+    TLOG("Testing replob4 commit");
+    ServiceCreator c;
+    c.create<C>(0, clientCommits);
+    c.create<R>(0, c.config().nodes);
+
+    ServiceAccessor a;
+    TrueScheduler s {[&a] {
+        a.service<C>(0).test();
+    }};
+    s.run();
+    //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0});
 }
