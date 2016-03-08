@@ -99,21 +99,21 @@ struct Apply
     MsgId id;
 };
 
-struct Vote
-{
-    CarrySet carrySet;
-    NodeId srcNode;
-    NodesSet nodesSet;
-};
-
-struct Commit
-{
-    CarrySet carrySet;
-};
-
 struct Replob : Service<Replob>
 {
     using Service<Replob>::on;
+
+    struct Vote
+    {
+        CarrySet carrySet;
+        NodeId srcNode;
+        NodesSet nodesSet;
+    };
+
+    struct Commit
+    {
+        CarrySet carrySet;
+    };
 
     enum struct State
     {
@@ -191,21 +191,20 @@ struct Replob : Service<Replob>
     An<Config> config;
 };
 
-struct Vote2
-{
-    CarrySet carrySet;
-    NodesSet nodesSet;
-    //NodesSet votedSet;
-};
-
-struct Commit2
-{
-    CarrySet carrySet;
-};
-
 struct Replob2 : Service<Replob2>
 {
     using Service<Replob2>::on;
+
+    struct Vote
+    {
+        CarrySet carrySet;
+        NodesSet nodesSet;
+    };
+
+    struct Commit
+    {
+        CarrySet carrySet;
+    };
 
     enum struct State
     {
@@ -224,10 +223,10 @@ struct Replob2 : Service<Replob2>
     void on(const Apply& apply)
     {
         SLOG("Apply");
-        on(Vote2{CarrySet{apply.id}, nodes_});
+        on(Vote{CarrySet{apply.id}, nodes_});
     }
 
-    void on(const Vote2& vote)
+    void on(const Vote& vote)
     {
         if (state_ == State::Completed)
             return;
@@ -251,7 +250,7 @@ struct Replob2 : Service<Replob2>
         {
             if (state_ == State::MayCommit)
             {
-                on(Commit2{carries_});
+                on(Commit{carries_});
                 return; // ?
             }
             else
@@ -262,11 +261,11 @@ struct Replob2 : Service<Replob2>
         if (state_ == State::ToVote)
         {
             state_ = State::MayCommit;
-            broadcast(Vote2{carries_, nodes_});
+            broadcast(Vote{carries_, nodes_});
         }
     }
 
-    void on(const Commit2& commit)
+    void on(const Commit& commit)
     {
         if (state_ == State::Completed)
             return;
@@ -295,7 +294,7 @@ struct Replob2 : Service<Replob2>
         if (carries_.empty())
             nodes_.erase(context().sourceNode);
         else
-            on(Vote2{carries_, nodes_-NodesSet{context().sourceNode}});
+            on(Vote{carries_, nodes_-NodesSet{context().sourceNode}});
     }
 
     void complete()
@@ -312,118 +311,19 @@ struct Replob2 : Service<Replob2>
     An<Config> config;
 };
 
-struct Vote3
-{
-    CarrySet carries;
-    NodesSet nodes;
-    NodesSet votes;
-};
-
-struct Replob3 : Service<Replob3>
-{
-    using Service<Replob3>::on;
-
-    enum struct State
-    {
-        Voting,
-        Committed,
-    };
-
-    void on(const Init&)
-    {
-        for (NodeId nId = 0; nId < config->nodes; ++ nId)
-            nodes_ |= nId;
-    }
-
-    void on(const Apply& apply)
-    {
-        SLOG("Apply");
-        on(Vote3{CarrySet{apply.id}, nodes_, {}});
-    }
-
-    void on(const Vote3& vote)
-    {
-        // TODO:
-        // votes_ &= nodes
-        // think about vote reuse without resetting
-        if (state_ == State::Committed)
-            return;
-        if (nodes_.count(context().sourceNode) == 0)
-            return;
-        auto equality = [&] {
-            return carries_ == vote.carries;
-        };
-        nodes_ &= vote.nodes;
-        votes_ &= nodes_; // !! must be nodes_ instead of vote.nodes
-        bool needReset = !equality();
-        if (needReset)
-        {
-            SLOG("Need reset");
-            carries_ |= vote.carries;
-            votes_.clear();
-        }
-        NodesSet newVotes = votes_;
-        bool mayVoteUpdate = equality();
-        if (mayVoteUpdate)
-        {
-            SLOG("May vote update");
-            newVotes |= vote.votes;
-        }
-        newVotes |= context().currentNode;
-        bool needRemoteVoteUpdate = newVotes != votes_;
-        if (needRemoteVoteUpdate)
-        {
-            SLOG("Need remote vote update");
-            votes_ = newVotes;
-            broadcast(Vote3{carries_, nodes_, votes_});
-        }
-        bool needCommit = votes_ == nodes_;
-        if (needCommit)
-        {
-            SLOG("Need commit");
-            commit();
-        }
-    }
-
-    void on(const Disconnect&)
-    {
-        SLOG("Disconnect");
-        if (carries_.empty())
-            nodes_.erase(context().sourceNode);
-        else
-            on(Vote3{carries_, nodes_-NodesSet{context().sourceNode}, {}});
-    }
-
-    void commit()
-    {
-        SLOG("Commit");
-        state_ = State::Committed;
-        VERIFY(committed.empty(), "Already committed");
-        committed = carries_;
-    }
-
-    State state_ = State::Voting;
-    NodesSet nodes_;
-    NodesSet votes_;
-    CarrySet carries_;
-
-    CarrySet committed;
-    An<Config> config;
-};
-
-struct Vote4
-{
-    CarrySet carries;
-    NodesSet nodes;
-    NodesSet votes;
-};
-
-struct Commit4 {};
-
 struct Replob4 : Service<Replob4>
 {
     using Service<Replob4>::on;
 
+    struct Vote
+    {
+        CarrySet carries;
+        NodesSet nodes;
+        NodesSet votes;
+    };
+
+    struct Commit {};
+
     enum struct State
     {
         Voting,
@@ -439,10 +339,10 @@ struct Replob4 : Service<Replob4>
     void on(const Apply& apply)
     {
         SLOG("Apply");
-        on(Vote4{CarrySet{apply.id}, nodes_, {}});
+        on(Vote{CarrySet{apply.id}, nodes_, {}});
     }
 
-    void on(const Vote4& vote)
+    void on(const Vote& vote)
     {
         if (state_ == State::Committed)
             return;
@@ -465,13 +365,13 @@ struct Replob4 : Service<Replob4>
             {
                 // commit
                 SLOG("Need commit");
-                on(Commit4{});
+                on(Commit{});
             }
             else
             {
                 // broadcast
                 SLOG("Need broadcast");
-                broadcast(Vote4{carries_, nodes_, votes_});
+                broadcast(Vote{carries_, nodes_, votes_});
             }
         }
     }
@@ -482,10 +382,10 @@ struct Replob4 : Service<Replob4>
         if (carries_.empty())
             nodes_.erase(context().sourceNode);
         else
-            on(Vote4{carries_, nodes_-NodesSet{context().sourceNode}, {}});
+            on(Vote{carries_, nodes_-NodesSet{context().sourceNode}, {}});
     }
 
-    void on(const Commit4&)
+    void on(const Commit&)
     {
         if (state_ == State::Committed)
             return;
@@ -493,7 +393,7 @@ struct Replob4 : Service<Replob4>
         state_ = State::Committed;
         VERIFY(committed.empty(), "Already committed");
         committed = carries_;
-        broadcast(Commit4{});
+        broadcast(Commit{});
     }
 
     State state_ = State::Voting;
@@ -597,29 +497,6 @@ void replob2(int clientCommits)
     //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0});
 }
 
-void replob3(int clientCommits)
-{
-    using R = Replob3;
-    using C = Client<R>;
-
-    An<Config> config;
-    config->maxFails = 1;
-    config->maxIterations = 0;
-    config->maxFailedNodes = 1;
-
-    TLOG("Testing replob3 commit");
-    ServiceCreator c;
-    c.create<C>(0, clientCommits);
-    c.create<R>(0, c.config().nodes);
-
-    ServiceAccessor a;
-    TrueScheduler s {[&a] {
-        a.service<C>(0).test();
-    }};
-    s.run();
-    //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0});
-}
-
 void replob4(int clientCommits)
 {
     using R = Replob4;
@@ -640,5 +517,4 @@ void replob4(int clientCommits)
         a.service<C>(0).test();
     }};
     s.run();
-    //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0});
 }
