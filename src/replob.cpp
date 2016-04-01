@@ -119,8 +119,8 @@ struct Apply
 };
 
 /*
- * The first naive, simple but incorrect version
- * Just to verify the emulator
+ * The first naive and simple but incorrect version.
+ * For the purpose to verify the emulator.
  */
 struct ReplobSore : Service<ReplobSore>
 {
@@ -216,8 +216,8 @@ struct ReplobSore : Service<ReplobSore>
 
 /*
  * Second version.
- * Tries to make decision by waiting for messages from all.
- * Thus it provides less messages than others.
+ * Tries to make decision by waiting for messages from every node.
+ * Thus it provides less messages than the others.
  * Completely verified by emulator.
  */
 struct ReplobCalm : Service<ReplobCalm>
@@ -343,7 +343,7 @@ struct ReplobCalm : Service<ReplobCalm>
 /*
  * Uniform merge method, the simplest and very clean solution.
  * It tries to generate messages on each incoming request
- * and preserves votes from other nodes => safer than previous
+ * and preserves votes from other nodes => safer than previous.
  */
 struct ReplobFlat : Service<ReplobFlat>
 {
@@ -643,14 +643,9 @@ struct ReplobRush : Service<ReplobRush>
             {
                 if (idx < gen.messages.size())
                 {
-                    ++ count[gen.messages[idx]];
-                }
-            }
-            for (auto&& c: count)
-            {
-                if (c.second >= majority())
-                {
-                    return c.first;
+                    auto&& id = gen.messages[idx];
+                    if (++ count[id] >= majority())
+                        return id;
                 }
             }
             return MsgId{-1};
