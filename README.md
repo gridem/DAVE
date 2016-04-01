@@ -6,7 +6,7 @@ Distributed Asynchronous Verification Emulator (DAVE) is a software to verify th
 
 ## Build Requirements
 
-* Supported compilers (must support C++11):
+* Supported compilers (must support c++11):
     * GCC
     * Clang
     * MSVC

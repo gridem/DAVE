@@ -164,7 +164,7 @@ private:
 
 #define SLOG(D_msg)         JLOG("SRV: " << D_msg << ", on " << context().sourceNode << "=>" << context().currentNode)
 
-#define TLOG(D_msg)         JLOG("--- TEST: " << D_msg)
+#define TLOG(D_msg)         RLOG("--- TEST: " << D_msg)
 
 #define CHECK(D_cond, D_msg) \
     if (!(D_cond)) RLOG("Verification failed: " << #D_cond << ", " << D_msg); \

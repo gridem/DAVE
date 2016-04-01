@@ -18,6 +18,7 @@
 
 #include <set>
 #include <unordered_map>
+#include <algorithm>
 
 template<typename T>
 std::set<T> operator-(const std::set<T>& s1, const std::set<T>& s2)
@@ -69,8 +70,20 @@ std::set<T> operator|(const std::set<T>& s1, const std::set<T>& s2)
     return res;
 }
 
+template<typename T, typename K>
+typename T::mapped_type findOrEmpty(const T& t, const K& key)
+{
+    auto it = t.find(key);
+    if (it != t.end())
+        return it->second;
+    return {};
+}
+
 struct MsgId
 {
+    MsgId() = default;
+    MsgId(int id_) : id{id_} {}
+
     int id = nextId();
 
     static int nextId()
@@ -89,6 +102,11 @@ struct MsgId
         return id == m.id;
     }
 };
+
+std::ostream& operator<<(std::ostream& o, const MsgId& m)
+{
+    return o << ":" << m.id;
+}
 
 using NodeId = int;
 
@@ -529,6 +547,209 @@ struct Replob5 : Service<Replob5>
     An<Config> config;
 };
 
+using Messages = std::vector<MsgId>;
+
+struct VectorMessageHash
+{
+    template<typename T>
+    size_t operator()(const std::vector<T>& vec) const
+    {
+        size_t res = 0;
+        for (auto&& t: vec)
+        {
+            res ^= t.id;
+            res <<= 5;
+        }
+        return res;
+    }
+};
+
+namespace std {
+
+template<> struct hash<MsgId>
+{
+    size_t operator()(const MsgId& id) const
+    {
+        return id.id;
+    }
+};
+
+}
+
+int majority()
+{
+    An<Config> config;
+    return config->nodes / 2 + 1;
+}
+
+struct ReplobRush : Service<ReplobRush>
+{
+    using Service<ReplobRush>::on;
+
+    struct MessagesGeneration
+    {
+        Messages messages;
+        int generation = 0;
+
+        bool operator==(const MessagesGeneration& m) const
+        {
+            return messages == m.messages && generation == m.generation;
+        }
+    };
+
+    struct State
+    {
+        CarrySet carries;
+        std::vector<MessagesGeneration> nodesMessages;
+        std::unordered_map<Messages, NodesSet, VectorMessageHash> promises;
+
+        bool operator==(const State& s) const
+        {
+            return carries == s.carries && nodesMessages == s.nodesMessages && promises == s.promises;
+        }
+
+        bool operator!=(const State& s) const
+        {
+            return !this->operator==(s);
+        }
+
+        MsgId getMajorityId(int idx) const
+        {
+            std::unordered_map<MsgId, int> count;
+            for (auto&& gen: nodesMessages)
+            {
+                if (idx < gen.messages.size())
+                {
+                    ++ count[gen.messages[idx]];
+                }
+            }
+            for (auto&& c: count)
+            {
+                if (c.second >= majority())
+                {
+                    return c.first;
+                }
+            }
+            return MsgId{-1};
+        }
+
+        MessagesGeneration& current()
+        {
+            return nodesMessages[context().currentNode];
+        }
+    };
+
+    enum struct Status
+    {
+        Voting,
+        Committed,
+    };
+
+    void on(const Init&)
+    {
+        state_.nodesMessages.resize(config->nodes);
+    }
+
+    void on(const Apply& apply)
+    {
+        SLOG("Apply");
+        on(State{CarrySet{apply.id}, std::vector<MessagesGeneration>(config->nodes), std::unordered_map<Messages, NodesSet, VectorMessageHash>()});
+    }
+
+    void on(const State& incomingState)
+    {
+        if (status_ == Status::Committed)
+            return;
+        SLOG("incoming state");
+        State newState;
+        newState.nodesMessages = state_.nodesMessages;
+        // union messages
+        for (int i = 0; i < config->nodes; ++ i)
+        {
+            if (incomingState.nodesMessages[i].generation > newState.nodesMessages[i].generation)
+            {
+                newState.nodesMessages[i] = incomingState.nodesMessages[i];
+            }
+        }
+        // add new messages
+        newState.carries = state_.carries;
+        for (auto&& msg: incomingState.carries - newState.carries)
+        {
+            newState.carries.insert(msg);
+            newState.current().messages.push_back(msg);
+            newState.current().generation = state_.current().generation + 1;
+        }
+        // iteration and promising
+        bool sorted = false;
+        Messages promiseMessages = committed;
+        Messages commitMessages = committed;
+        for (int i = committed.size(); i < newState.carries.size(); ++ i)
+        {
+            MsgId id = newState.getMajorityId(i);
+            if (id.id >= 0)
+            {
+                // found majority, add promise
+                SLOG("found majority, add promise: " << id.id);
+                promiseMessages.push_back(id);
+                NodesSet votes = NodesSet{context().currentNode}
+                        | findOrEmpty(state_.promises, promiseMessages)
+                        | findOrEmpty(incomingState.promises, promiseMessages);
+                newState.promises[promiseMessages] = votes;
+                if (votes.size() >= majority())
+                {
+                    // votes has majority => may be committed
+                    SLOG("votes has majority => may be committed: " << id.id);
+                    commitMessages = promiseMessages;
+                }
+            }
+            else
+            {
+                if (!sorted)
+                {
+                    // try to sort
+                    SLOG("try to sort from: " << i);
+                    sorted = true;
+                    auto&& messages = newState.current().messages;
+                    std::sort(messages.begin() + i, messages.end());
+                    // retry attempt
+                    -- i;
+                    continue;
+                }
+                else
+                {
+                    SLOG("there is no majority even with sorting: " << i);
+                    break; // there is no majority even with sorting => no other promises
+                }
+            }
+        }
+        if (newState != state_)
+        {
+            // update state and generation
+            SLOG("update state with generation: " << newState.current().generation);
+            state_ = newState;
+            broadcast(newState);
+            if (commitMessages != committed)
+            {
+                SLOG("new committed messages" << commitMessages);
+                VERIFY(commitMessages.size() > committed.size(), "new commit size must be more");
+                // TODO: add prefix verification
+                committed = commitMessages;
+            }
+        }
+    }
+
+    void on(const Disconnect&)
+    {
+        SLOG("Disconnect");
+    }
+
+    Status status_ = Status::Voting;
+    State state_;
+
+    Messages committed;
+    An<Config> config;
+};
+
 template<typename T_replob>
 struct Client : Service<Client<T_replob>>
 {
@@ -546,22 +767,33 @@ struct Client : Service<Client<T_replob>>
 
     void test()
     {
-        CarrySet commited;
+        decltype(T_replob::committed) committed;
         for (int i = 0; i < config->nodes; ++ i)
         {
             bool isDisconnected = disconnected.count(i) != 0;
             auto& nodeCommited = accessor.service<T_replob>(i).committed;
-            if (isDisconnected && nodeCommited.empty())
+            if (isDisconnected)
+            {
+                CHECK3(nodeCommited.size() <= committed.size(), "invalid committed size");
+                auto it1 = committed.begin();
+                auto it2 = nodeCommited.begin();
+                while (it2 != nodeCommited.end())
+                {
+                    CHECK3(*it1 == *it2, "invalid committed prefix");
+                    ++ it1;
+                    ++ it2;
+                }
                 continue;
+            }
             CHECK3(!nodeCommited.empty(), "must be commited for node: "
                    << i << ", is disconnected: " << isDisconnected);
-            if (commited.empty())
-                commited = nodeCommited;
+            if (committed.empty())
+                committed = nodeCommited;
             else
             {
-                if (commited != nodeCommited)
+                if (committed != nodeCommited)
                 {
-                    for (auto&& n: commited)
+                    for (auto&& n: committed)
                     {
                         RLOG("commited: " << n.id);
                     }
@@ -571,7 +803,7 @@ struct Client : Service<Client<T_replob>>
                     }
                     RLOG("node: " << i);
                 }
-                CHECK3(commited == nodeCommited, "must be consensus for the same messages: " + std::to_string(i));
+                CHECK3(committed == nodeCommited, "must be consensus for the same messages: " + std::to_string(i));
             }
         }
     }
@@ -581,49 +813,10 @@ struct Client : Service<Client<T_replob>>
     An<Config> config;
 };
 
-void replob()
+template<typename T_replob>
+void testReplobImpl(int clientCommits)
 {
-    using R = Replob;
-    using C = Client<R>;
-
-    TLOG("Testing replob commit");
-    ServiceCreator c;
-    c.create<C>(0, 2);
-    c.create<R>(0, c.config().nodes);
-    
-    ServiceAccessor a;
-    TrueScheduler s {[&a] {
-        a.service<C>(0).test();
-    }};
-    s.run();
-    //s.checkVariant({0, 0, 2, 2, 2, 0, 0, 0, 0, 0});
-}
-
-void replob2(int clientCommits)
-{
-    using R = Replob2;
-    using C = Client<R>;
-
-    An<Config> config;
-    config->maxFails = 1;
-    config->maxIterations = 0;
-
-    TLOG("Testing replob2 commit");
-    ServiceCreator c;
-    c.create<C>(0, clientCommits);
-    c.create<R>(0, c.config().nodes);
-
-    ServiceAccessor a;
-    TrueScheduler s {[&a] {
-        a.service<C>(0).test();
-    }};
-    s.run();
-    //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0});
-}
-
-void replob4(int clientCommits)
-{
-    using R = Replob4;
+    using R = T_replob;
     using C = Client<R>;
 
     An<Config> config;
@@ -631,7 +824,6 @@ void replob4(int clientCommits)
     config->maxIterations = 0;
     config->maxFailedNodes = 1;
 
-    TLOG("Testing replob4 commit");
     ServiceCreator c;
     c.create<C>(0, clientCommits);
     c.create<R>(0, c.config().nodes);
@@ -641,26 +833,18 @@ void replob4(int clientCommits)
         a.service<C>(0).test();
     }};
     s.run();
+    //s.checkVariant({0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2});
 }
 
-void replob5(int clientCommits)
-{
-    using R = Replob5;
-    using C = Client<R>;
+#define DEF_REPLOB(D_replob) \
+    void test##D_replob(int clientCommits) \
+    { \
+        TLOG("Checking " #D_replob); \
+        testReplobImpl<D_replob>(clientCommits); \
+    }
 
-    An<Config> config;
-    config->maxFails = 1;
-    config->maxIterations = 0;
-    config->maxFailedNodes = 1;
-
-    TLOG("Testing replob5 commit");
-    ServiceCreator c;
-    c.create<C>(0, clientCommits);
-    c.create<R>(0, c.config().nodes);
-
-    ServiceAccessor a;
-    TrueScheduler s {[&a] {
-        a.service<C>(0).test();
-    }};
-    s.run();
-}
+DEF_REPLOB(Replob)
+DEF_REPLOB(Replob2)
+DEF_REPLOB(Replob4)
+DEF_REPLOB(Replob5)
+DEF_REPLOB(ReplobRush)

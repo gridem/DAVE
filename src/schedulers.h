@@ -23,11 +23,12 @@ struct VerificationFail : std::runtime_error
 
 using Variant = std::vector<int>;
 
-inline std::ostream& operator<<(std::ostream& o, const Variant& v)
+template<typename T>
+std::ostream& operator<<(std::ostream& o, const std::vector<T>& v)
 {
     o << '{';
     bool first = true;
-    for (int i: v)
+    for (auto&& i: v)
     {
         if (first)
             first = false;

@@ -18,17 +18,17 @@
 
 void test();
 void test2();
-void replob();
-void replob2(int clientCommits);
-void replob4(int clientCommits);
-void replob5(int clientCommits);
+void testReplob(int clientCommits);
+void testReplob2(int clientCommits);
+void testReplob4(int clientCommits);
+void testReplob5(int clientCommits);
+void testReplobRush(int clientCommits);
 
 int main(/*int argc, char* argv[]*/)
 {
     try
     {
-        //test2();
-        replob5(2);
+        testReplobRush(1);
     }
     catch (std::exception& e)
     {
