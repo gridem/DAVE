@@ -35,7 +35,7 @@ struct Config
 };
 ```
 
-Number of performed executions to check all variants:
+Number of performed executions to check all variants for the *Calm* version:
 
 | Proposals | Proposal Nodes, id | Executions |
 |:-:|:-:|--:|

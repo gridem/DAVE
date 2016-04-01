@@ -18,10 +18,10 @@
 
 void test();
 void test2();
-void testReplob(int clientCommits);
-void testReplob2(int clientCommits);
-void testReplob4(int clientCommits);
-void testReplob5(int clientCommits);
+void testReplobSore(int clientCommits);
+void testReplobCalm(int clientCommits);
+void testReplobFlat(int clientCommits);
+void testReplobMost(int clientCommits);
 void testReplobRush(int clientCommits);
 
 int main(/*int argc, char* argv[]*/)

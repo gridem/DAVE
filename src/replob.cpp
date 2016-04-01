@@ -118,9 +118,13 @@ struct Apply
     MsgId id;
 };
 
-struct Replob : Service<Replob>
+/*
+ * The first naive, simple but incorrect version
+ * Just to verify the emulator
+ */
+struct ReplobSore : Service<ReplobSore>
 {
-    using Service<Replob>::on;
+    using Service<ReplobSore>::on;
 
     struct Vote
     {
@@ -210,9 +214,15 @@ struct Replob : Service<Replob>
     An<Config> config;
 };
 
-struct Replob2 : Service<Replob2>
+/*
+ * Second version.
+ * Tries to make decision by waiting for messages from all.
+ * Thus it provides less messages than others.
+ * Completely verified by emulator.
+ */
+struct ReplobCalm : Service<ReplobCalm>
 {
-    using Service<Replob2>::on;
+    using Service<ReplobCalm>::on;
 
     struct Vote
     {
@@ -330,9 +340,14 @@ struct Replob2 : Service<Replob2>
     An<Config> config;
 };
 
-struct Replob4 : Service<Replob4>
+/*
+ * Uniform merge method, the simplest and very clean solution.
+ * It tries to generate messages on each incoming request
+ * and preserves votes from other nodes => safer than previous
+ */
+struct ReplobFlat : Service<ReplobFlat>
 {
-    using Service<Replob4>::on;
+    using Service<ReplobFlat>::on;
 
     struct Vote
     {
@@ -424,15 +439,17 @@ struct Replob4 : Service<Replob4>
     An<Config> config;
 };
 
-struct Replob5 : Service<Replob5>
+/*
+ * Tries to make decision based on majority votes from all nodes.
+ */
+struct ReplobMost : Service<ReplobMost>
 {
-    using Service<Replob5>::on;
+    using Service<ReplobMost>::on;
 
     struct Vote
     {
         CarrySet carries;
         NodesSet nodes;
-        //NodesSet votes;
     };
 
     struct Commit {};
@@ -582,6 +599,12 @@ int majority()
     return config->nodes / 2 + 1;
 }
 
+/*
+ * The most powerful and complex algorithm.
+ * It tries to completely avoid waiting messages from all nodes
+ * and allows partial commitment.
+ * It's important to emphasize that there is no handler on disconnection.
+ */
 struct ReplobRush : Service<ReplobRush>
 {
     using Service<ReplobRush>::on;
@@ -843,8 +866,8 @@ void testReplobImpl(int clientCommits)
         testReplobImpl<D_replob>(clientCommits); \
     }
 
-DEF_REPLOB(Replob)
-DEF_REPLOB(Replob2)
-DEF_REPLOB(Replob4)
-DEF_REPLOB(Replob5)
+DEF_REPLOB(ReplobSore)
+DEF_REPLOB(ReplobCalm)
+DEF_REPLOB(ReplobFlat)
+DEF_REPLOB(ReplobMost)
 DEF_REPLOB(ReplobRush)
