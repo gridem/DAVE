@@ -129,7 +129,6 @@ struct ReplobSore : Service<ReplobSore>
     struct Vote
     {
         CarrySet carrySet;
-        NodeId srcNode;
         NodesSet nodesSet;
     };
 
@@ -154,32 +153,38 @@ struct ReplobSore : Service<ReplobSore>
     void on(const Apply& apply)
     {
         SLOG("Apply");
-        on(Vote{CarrySet{apply.id}, context().currentNode, nodes_});
+        on(Vote{CarrySet{apply.id}, nodes_});
     }
 
     void on(const Vote& vote)
     {
         if (state_ == State::Completed)
             return;
+        SLOG("Vote");
         if (nodes_.count(context().sourceNode) == 0)
             return;
+        SLOG("Vote proceed");
         carries_ |= vote.carrySet;
         if (nodes_ != vote.nodesSet)
         {
+            SLOG("Vote clear");
             state_ = State::Initial;
             nodes_ &= vote.nodesSet;
-            voted_.clear(); // must be below nodes_ because nodesSet can be reference to voted_!!!
+            voted_.clear();
         }
-        voted_ |= vote.srcNode;
+        voted_ |= context().sourceNode;
         voted_ |= context().currentNode;
+        voted_ &= nodes_;
         if (voted_  == nodes_)
         {
+            SLOG("Vote commit");
             on(Commit{carries_});
         }
         else if (state_ == State::Initial)
         {
+            SLOG("Vote broadcast");
             state_ = State::Voted;
-            broadcast(Vote{carries_, context().currentNode, nodes_});
+            broadcast(Vote{carries_, nodes_});
         }
     }
 
@@ -187,6 +192,7 @@ struct ReplobSore : Service<ReplobSore>
     {
         if (state_ == State::Completed)
             return;
+        SLOG("Commit");
         state_ = State::Completed;
         carries_ = commit.carrySet;
         broadcast(Commit{carries_});
@@ -195,10 +201,11 @@ struct ReplobSore : Service<ReplobSore>
 
     void on(const Disconnect&)
     {
+        SLOG("Disconnect");
         if (carries_.empty())
             nodes_.erase(context().sourceNode);
         else
-            on(Vote{carries_, context().currentNode, nodes_-NodesSet{context().sourceNode}});
+            on(Vote{carries_, nodes_ - NodesSet{context().sourceNode}});
     }
 
     void complete()
@@ -210,6 +217,7 @@ struct ReplobSore : Service<ReplobSore>
     NodesSet nodes_;
     NodesSet voted_;
     CarrySet carries_;
+
     CarrySet committed;
     An<Config> config;
 };
