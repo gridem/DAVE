@@ -31,6 +31,12 @@ std::set<T> operator-(const std::set<T>& s1, const std::set<T>& s2)
 }
 
 template<typename T>
+std::set<T> operator-(const std::set<T>& s1, const T& t2)
+{
+    return s1 - std::set<T>{t2};
+}
+
+template<typename T>
 void operator|=(std::set<T>& s, const T& t)
 {
     s.insert(t);
@@ -134,7 +140,7 @@ struct ReplobSore : Service<ReplobSore>
 
     struct Commit
     {
-        CarrySet carrySet;
+        CarrySet commitSet;
     };
 
     enum struct State
@@ -194,8 +200,8 @@ struct ReplobSore : Service<ReplobSore>
             return;
         SLOG("Commit");
         state_ = State::Completed;
-        carries_ = commit.carrySet;
-        broadcast(Commit{carries_});
+        carries_ = commit.commitSet;
+        broadcast(commit);
         complete();
     }
 
@@ -205,7 +211,7 @@ struct ReplobSore : Service<ReplobSore>
         if (carries_.empty())
             nodes_.erase(context().sourceNode);
         else
-            on(Vote{carries_, nodes_ - NodesSet{context().sourceNode}});
+            on(Vote{carries_, nodes_ - context().sourceNode});
     }
 
     void complete()
@@ -240,7 +246,7 @@ struct ReplobCalm : Service<ReplobCalm>
 
     struct Commit
     {
-        CarrySet carrySet;
+        CarrySet commitSet;
     };
 
     enum struct State
@@ -308,20 +314,20 @@ struct ReplobCalm : Service<ReplobCalm>
             return;
         state_ = State::Completed;
         SLOG("Broadcasting commit");
-        if (carries_ != commit.carrySet)
+        if (carries_ != commit.commitSet)
         {
             SLOG("Invalid carry");
             for (auto&& n: carries_)
             {
                 RLOG("carries: " << n.id);
             }
-            for (auto&& n: commit.carrySet)
+            for (auto&& n: commit.commitSet)
             {
                 RLOG("to commit: " << n.id);
             }
         }
-        VERIFY(carries_ == commit.carrySet, "Invalid carry set on commit");
-        carries_ = commit.carrySet;
+        VERIFY(carries_ == commit.commitSet, "Invalid carry set on commit");
+        carries_ = commit.commitSet;
         complete();
         broadcast(commit);
     }
@@ -793,44 +799,31 @@ struct Client : Service<Client<T_replob>>
 
     void test()
     {
-        decltype(T_replob::committed) committed;
+#define CHECK_COMMIT(D_cond, D_msg)     CHECK3(D_cond, D_msg \
+        << ", node #0: " << firstCommitted \
+        << ", node #" << i << ": " << nodeCommitted)
+
+        auto firstCommitted = accessor.service<T_replob>(0).committed;
         for (int i = 0; i < config->nodes; ++ i)
         {
             bool isDisconnected = disconnected.count(i) != 0;
-            auto& nodeCommited = accessor.service<T_replob>(i).committed;
+            auto& nodeCommitted = accessor.service<T_replob>(i).committed;
             if (isDisconnected)
             {
-                CHECK3(nodeCommited.size() <= committed.size(), "invalid committed size");
-                auto it1 = committed.begin();
-                auto it2 = nodeCommited.begin();
-                while (it2 != nodeCommited.end())
+                CHECK_COMMIT(nodeCommitted.size() <= firstCommitted.size(),
+                       "invalid committed size: must be not more than for the nonfailed node");
+                auto it1 = firstCommitted.begin();
+                auto it2 = nodeCommitted.begin();
+                while (it2 != nodeCommitted.end())
                 {
-                    CHECK3(*it1 == *it2, "invalid committed prefix");
+                    CHECK_COMMIT(*it1 == *it2, "invalid committed prefix");
                     ++ it1;
                     ++ it2;
                 }
                 continue;
             }
-            CHECK3(!nodeCommited.empty(), "must be commited for node: "
-                   << i << ", is disconnected: " << isDisconnected);
-            if (committed.empty())
-                committed = nodeCommited;
-            else
-            {
-                if (committed != nodeCommited)
-                {
-                    for (auto&& n: committed)
-                    {
-                        RLOG("commited: " << n.id);
-                    }
-                    for (auto&& n: nodeCommited)
-                    {
-                        RLOG("node commited: " << n.id);
-                    }
-                    RLOG("node: " << i);
-                }
-                CHECK3(committed == nodeCommited, "must be consensus for the same messages: " + std::to_string(i));
-            }
+            CHECK_COMMIT(!nodeCommitted.empty(), "must be committed for nonfailed node #" << i);
+            CHECK_COMMIT(firstCommitted == nodeCommitted, "must be agreement among the same sequence of messages");
         }
     }
 

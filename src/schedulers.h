@@ -23,12 +23,12 @@ struct VerificationFail : std::runtime_error
 
 using Variant = std::vector<int>;
 
-template<typename T>
-std::ostream& operator<<(std::ostream& o, const std::vector<T>& v)
+template<typename T_stream, typename T_iterable>
+T_stream& outStream(T_stream& o, const T_iterable& it)
 {
     o << '{';
     bool first = true;
-    for (auto&& i: v)
+    for (auto&& i: it)
     {
         if (first)
             first = false;
@@ -37,6 +37,18 @@ std::ostream& operator<<(std::ostream& o, const std::vector<T>& v)
         o << i;
     }
     return o << '}';
+}
+
+template<typename T>
+std::ostream& operator<<(std::ostream& o, const std::vector<T>& v)
+{
+    return outStream(o, v);
+}
+
+template<typename T>
+std::ostream& operator<<(std::ostream& o, const std::set<T>& v)
+{
+    return outStream(o, v);
 }
 
 struct FrontScheduler

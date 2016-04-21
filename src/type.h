@@ -22,13 +22,38 @@ Type getType()
     return {typeid(T)};
 }
 
+#ifdef flagGCC_LIKE
+#include <cxxabi.h>
+
+inline std::string demangle(const char* name)
+{
+    struct Free
+    {
+        void operator()(void* v) const { free(v); }
+    };
+    using CharPtr = std::unique_ptr<char, Free>;
+
+    int status;
+    CharPtr demangled{abi::__cxa_demangle(name, 0, 0, &status)};
+    VERIFY(status == 0, "Invalid demangle status");
+    return demangled.get();
+}
+
+#else
+
+inline std::string demangle(const char* name)
+{
+    if (name.substr(0, 7) == "struct ")
+        return name.substr(7);
+    return name;
+}
+
+#endif
+
 template<typename T>
 std::string getTypeName()
 {
-    std::string n = typeid(T).name();
-    if (n.substr(0, 7) == "struct ")
-        return n.substr(7);
-    return n;
+    return demangle(typeid(T).name());
 }
 
 struct TypeContainer
