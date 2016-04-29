@@ -41,7 +41,7 @@ inline std::string demangle(const char* name)
 
 #else
 
-inline std::string demangle(const char* name)
+inline std::string demangle(const std::string& name)
 {
     if (name.substr(0, 7) == "struct ")
         return name.substr(7);
