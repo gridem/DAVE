@@ -18,6 +18,7 @@ DAVE allows to verify masterless consensus algorithm known as *replob*. For deta
 
 1. [Replicated Object. Part 1: Introduction](http://gridem.blogspot.com/2015/09/replicated-object-part-1-introduction.html)
 1. [Replicated Object. Part 2: God Adapter](http://gridem.blogspot.com/2015/11/replicated-object-part-2-god-adapter.html)
+1. [Replicated Object. Part 7: Masterless Consensus Algorithm](http://gridem.blogspot.com/2016/05/replicated-object-part-7-masterless.html)
 
 Configuration parameters:
 
